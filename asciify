@@ -1,0 +1,2 @@
+#!/bin/sh
+uconv -x ':: Any-Latin; :: Latin-ASCII; [:^ASCII:] > \_'
