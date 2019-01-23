@@ -1,0 +1,70 @@
+#!/bin/sh
+
+recursive=0
+dry_run=0
+confirm=1
+
+while (( $# > 0 )); do
+    case "$1" in
+        -h|--help)
+            echo "asciify-names [-r|--resursive] [--dry-run] [--no-interactive] [--] [files ...]"
+            exit
+            ;;
+        -r|--recursive)
+            recursive=1
+            shift
+            ;;
+         --dry-run)
+            dry_run=1
+            shift
+            ;;
+        --no-interactive)
+            confirm=0
+            shift
+            ;;
+         --)
+            shift
+            break
+            ;;
+         *)
+            break
+            ;;
+    esac
+done
+
+if [[ $# == 0 ]]; then
+    echo "No files specified!"
+    exit 1
+fi
+
+paths=("$@")
+
+exec 4<&1
+
+if [[ $recursive == 1 ]]; then
+    find "${paths[@]}" -depth -print0
+else
+    for file in "$@"; do
+        printf '%s\0' "$file"
+    done
+fi | \
+while IFS='' read -r -d '' file; do
+    dir="$(dirname "$file")"
+    name="$(basename "$file")"
+    asciiname="$(echo "$name" | asciify)"
+    if [[ "$name" != "$asciiname" ]]; then
+        old_path="$dir/$name"
+        new_path="$dir/$asciiname"
+
+        if [[ $dry_run == 1 ]]; then
+            echo  "Would rename: $old_path --> $new_path"
+        else
+            echo  "Renaming: $old_path --> $new_path"
+            if [[ $confirm == 1 ]]; then
+                mv -i "$old_path" "$new_path" <&4
+            else
+                mv "$old_path" "$new_path" <&4
+            fi
+        fi
+    fi
+done
