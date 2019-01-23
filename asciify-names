@@ -1,8 +1,10 @@
-#!/bin/sh
+#!/usr/bin/env bash
+set -euo pipefail
+IFS=$'\n\t'
 
-recursive=0
-dry_run=0
-confirm=1
+export recursive=0
+export dry_run=0
+export confirm=1
 
 while (( $# > 0 )); do
     case "$1" in
@@ -39,32 +41,52 @@ fi
 
 paths=("$@")
 
-exec 4<&1
+tmpdir="$(mktemp -d)"
+export fifo_in="$tmpdir/fifo_in"
+export fifo_out="$tmpdir/fifo_out"
+mkfifo "$fifo_in"
+mkfifo "$fifo_out"
+
+asciify <"$fifo_in" >"$fifo_out" &
 
 if [[ $recursive == 1 ]]; then
-    find "${paths[@]}" -depth -print0
+    find "${paths[@]}" -depth
 else
     for file in "$@"; do
-        printf '%s\0' "$file"
+        printf '%s\n' "$file"
     done
-fi | \
-while IFS='' read -r -d '' file; do
-    dir="$(dirname "$file")"
-    name="$(basename "$file")"
-    asciiname="$(echo "$name" | asciify)"
-    if [[ "$name" != "$asciiname" ]]; then
-        old_path="$dir/$name"
-        new_path="$dir/$asciiname"
+fi | {
+    exec {in}> "$fifo_in"
 
-        if [[ $dry_run == 1 ]]; then
-            echo  "Would rename: $old_path --> $new_path"
-        else
-            echo  "Renaming: $old_path --> $new_path"
-            if [[ $confirm == 1 ]]; then
-                mv -i "$old_path" "$new_path" <&4
+    while IFS='' read -r file; do
+        basename "$file" >&$in &
+        printf "%s\n" "$file"
+        wait
+    done
+} | {
+    exec {out}< "$fifo_out"
+
+    while IFS='' read -r file &&
+          IFS='' read -r asciiname <&$out ; do
+        dir="$(dirname "$file")"
+        name="$(basename "$file")"
+        
+        if [[ "$name" != "$asciiname" ]]; then
+            old_path="$dir/$name"
+            new_path="$dir/$asciiname"
+
+            if [[ $dry_run == 1 ]]; then
+                echo  "Would rename: $old_path --> $new_path"
             else
-                mv "$old_path" "$new_path" <&4
+                echo  "Renaming: $old_path --> $new_path"
+                if [[ $confirm == 1 ]]; then
+                    mv -i "$old_path" "$new_path" </dev/tty
+                else
+                    mv "$old_path" "$new_path"
+                fi
             fi
         fi
-    fi
-done
+    done
+}
+
+rm -r "$tmpdir"
