@@ -42,51 +42,47 @@ fi
 paths=("$@")
 
 tmpdir="$(mktemp -d)"
-export fifo_in="$tmpdir/fifo_in"
-export fifo_out="$tmpdir/fifo_out"
-mkfifo "$fifo_in"
-mkfifo "$fifo_out"
-
-asciify <"$fifo_in" >"$fifo_out" &
+original_paths="$tmpdir/original_paths"
+original_names="$tmpdir/original_names"
+ascii_names="$tmpdir/ascii_names"
 
 if [[ $recursive == 1 ]]; then
-    find "${paths[@]}" -depth
+    find "${paths[@]}" -depth -print0
 else
     for file in "$@"; do
-        printf '%s\n' "$file"
+        printf '%s\0' "$file"
     done
-fi | {
-    exec {in}> "$fifo_in"
+fi >"$original_paths"
 
-    while IFS='' read -r file; do
-        basename "$file" >&$in &
-        printf "%s\n" "$file"
-        wait
-    done
-} | {
-    exec {out}< "$fifo_out"
+while IFS='' read -d '' -r file; do
+    printf "%s\0" "${file##*/}"
+done <"$original_paths" >"$original_names"
 
-    while IFS='' read -r file &&
-          IFS='' read -r asciiname <&$out ; do
-        dir="$(dirname "$file")"
-        name="$(basename "$file")"
-        
-        if [[ "$name" != "$asciiname" ]]; then
-            old_path="$dir/$name"
-            new_path="$dir/$asciiname"
+asciify <"$original_names" >"$ascii_names"
 
-            if [[ $dry_run == 1 ]]; then
-                echo  "Would rename: $old_path --> $new_path"
+exec {original_paths_fd}<"$original_paths"
+exec {ascii_names_fd}<"$ascii_names"
+
+while IFS='' read -d '' -r file <&$original_paths_fd &&
+      IFS='' read -d '' -r asciiname <&$ascii_names_fd; do
+    dir="${file%/*}"
+    name="${file##*/}"
+    
+    if [[ "$name" != "$asciiname" ]]; then
+        old_path="$dir/$name"
+        new_path="$dir/$asciiname"
+
+        if [[ $dry_run == 1 ]]; then
+            echo  "Would rename: $old_path --> $new_path"
+        else
+            echo  "Renaming: $old_path --> $new_path"
+            if [[ $confirm == 1 ]]; then
+                mv -i "$old_path" "$new_path"
             else
-                echo  "Renaming: $old_path --> $new_path"
-                if [[ $confirm == 1 ]]; then
-                    mv -i "$old_path" "$new_path" </dev/tty
-                else
-                    mv "$old_path" "$new_path"
-                fi
+                mv "$old_path" "$new_path"
             fi
         fi
-    done
-}
+    fi
+done
 
 rm -r "$tmpdir"
