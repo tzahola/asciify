@@ -49,9 +49,7 @@ ascii_names="$tmpdir/ascii_names"
 if [[ $recursive == 1 ]]; then
     find "${paths[@]}" -depth -print0
 else
-    for file in "$@"; do
-        printf '%s\0' "$file"
-    done
+    printf '%s\0' "$@"
 fi >"$original_paths"
 
 while IFS='' read -d '' -r file; do
@@ -65,12 +63,12 @@ exec {ascii_names_fd}<"$ascii_names"
 
 while IFS='' read -d '' -r file <&$original_paths_fd &&
       IFS='' read -d '' -r asciiname <&$ascii_names_fd; do
-    dir="${file%/*}"
     name="${file##*/}"
+    dir="${file::-${#name}}"
     
     if [[ "$name" != "$asciiname" ]]; then
-        old_path="$dir/$name"
-        new_path="$dir/$asciiname"
+        old_path="$dir$name"
+        new_path="$dir$asciiname"
 
         if [[ $dry_run == 1 ]]; then
             echo  "Would rename: $old_path --> $new_path"
